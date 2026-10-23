@@ -1,9 +1,13 @@
 
+import os
+import io
+import base64
+import asyncio
 import discord
 from discord import app_commands
-import os
+from openai import OpenAI
 
-TOKEN = os.environ.get("DISCORD_TOKEN")
+ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 class ImageBot(discord.Client):
     def __init__(self):
@@ -15,19 +19,29 @@ class ImageBot(discord.Client):
 
 bot = ImageBot()
 
-@bot.tree.command(name="image", description="Generate an AI image from a prompt")
+@bot.tree.command(name="image", description="Generate an AI image")
 @app_commands.describe(prompt="Describe the image you want")
 async def image(interaction: discord.Interaction, prompt: str):
-    await interaction.response.send_message(
-        f"Your image prompt: {prompt}\n"
-        "Image generation will be connected in the next step."
-    )
+    await interaction.response.defer(thinking=True)
+    try:
+        result = await asyncio.to_thread(
+            ai.images.generate,
+            model="gpt-image-1",
+            prompt=prompt,
+            size="1024x1024",
+            n=1
+        )
+        data = base64.b64decode(result.data[0].b64_json)
+        image_file = discord.File(io.BytesIO(data), filename="image.png")
+        await interaction.followup.send(file=image_file)
+    except Exception as error:
+        print(f"Image error: {error}")
+        await interaction.followup.send(
+            "Image generation failed. Check API billing and model access."
+        )
 
 @bot.event
 async def on_ready():
     print(f"Bot online: {bot.user}")
 
-if not TOKEN:
-    raise RuntimeError("Missing DISCORD_TOKEN environment variable")
-
-bot.run(TOKEN)
+bot.run(os.environ["DISCORD_TOKEN"])
